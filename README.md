@@ -5,7 +5,7 @@ A Pennsieve data target that imports asset files (e.g. viewer assets) into the p
 ## How It Works
 
 1. Discovers files in `INPUT_DIR`
-2. Resolves the target package ID from the execution run's data source (or `PACKAGE_ID` env var override)
+2. Resolves the target package ID — uses `PACKAGE_ID` directly, or looks it up from the execution run's data source if set to `"default"`
 3. Creates an import job via `POST /import` with configurable import type and viewer type
 4. Uploads files in parallel using presigned S3 URLs
 
@@ -21,6 +21,7 @@ Authentication uses callback tokens from the workflow orchestrator.
 | `CALLBACK_TOKEN` | Orchestrator callback token for API auth |
 | `EXECUTION_RUN_ID` | Workflow execution run ID |
 | `DATASET_ID` | Target Pennsieve dataset ID |
+| `PACKAGE_ID` | Target package ID. Set to `"default"` to resolve from the execution run's data source |
 
 ### Optional Environment Variables
 
@@ -28,7 +29,6 @@ Authentication uses callback tokens from the workflow orchestrator.
 |----------|---------|-------------|
 | `PENNSIEVE_API_HOST2` | `https://api2.pennsieve.net` | Pennsieve API endpoint |
 | `ORGANIZATION_ID` | | Organization ID (for logging) |
-| `PACKAGE_ID` | | Override package ID (skips execution run lookup) |
 | `IMPORT_TYPE` | `viewerAssets` | Import type sent to the `/import` API |
 | `VIEWER_TYPE` | `parquet-umap-viewer` | Viewer type option in the import body |
 

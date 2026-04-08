@@ -84,6 +84,9 @@ func loadConfig() (*Config, error) {
 	if cfg.ExecutionRunID == "" {
 		return nil, fmt.Errorf("EXECUTION_RUN_ID is required")
 	}
+	if cfg.PackageID == "" {
+		return nil, fmt.Errorf("PACKAGE_ID is required")
+	}
 
 	return cfg, nil
 }
@@ -159,10 +162,10 @@ func run() error {
 	// Step 1: Create Pennsieve client (uses callback auth)
 	client := NewPennsieveClient(cfg.APIHost2, cfg.ExecutionRunID, cfg.CallbackToken)
 
-	// Step 2: Resolve package ID — use env var override or fetch from execution run
+	// Step 2: Resolve package ID — use provided value or look up from execution run
 	packageID := cfg.PackageID
-	if packageID == "" {
-		log.Printf("PACKAGE_ID not set, fetching from execution run %s...", cfg.ExecutionRunID)
+	if packageID == "default" {
+		log.Printf("PACKAGE_ID is 'default', resolving from execution run %s...", cfg.ExecutionRunID)
 		run, err := client.GetExecutionRun(cfg.ExecutionRunID)
 		if err != nil {
 			return fmt.Errorf("failed to get execution run: %w", err)
@@ -173,7 +176,7 @@ func run() error {
 		}
 		log.Printf("Resolved package ID: %s", packageID)
 	} else {
-		log.Printf("Using PACKAGE_ID from environment: %s", packageID)
+		log.Printf("Using PACKAGE_ID: %s", packageID)
 	}
 
 	// Step 3: Build import file list
