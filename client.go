@@ -74,7 +74,7 @@ type presignResponse struct {
 
 // GetExecutionRun fetches the execution run to resolve data sources and package IDs.
 func (c *PennsieveClient) GetExecutionRun(runID string) (*ExecutionRunDetail, error) {
-	reqURL := fmt.Sprintf("%s/workflows/runs/%s", c.apiHost2, url.PathEscape(runID))
+	reqURL := fmt.Sprintf("%s/compute/workflows/runs/%s", c.apiHost2, url.PathEscape(runID))
 
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
