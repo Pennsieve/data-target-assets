@@ -56,7 +56,7 @@ type importRequest struct {
 	PackageID     string            `json:"package_id"`
 	ImportType    string            `json:"import_type"`
 	Files         []importFileDTO   `json:"files"`
-	Options       map[string]string `json:"options"`
+	Options       map[string]interface{} `json:"options"`
 }
 
 type importFileDTO struct {
@@ -112,7 +112,7 @@ func GetPackageID(run *ExecutionRunDetail) (string, error) {
 }
 
 // CreateImport creates a new import job via POST /import.
-func (c *PennsieveClient) CreateImport(datasetID, integrationID, packageID, importType string, files []ImportFile, options map[string]string) (string, error) {
+func (c *PennsieveClient) CreateImport(datasetID, integrationID, packageID, importType string, files []ImportFile, options map[string]interface{}) (string, error) {
 	reqURL := fmt.Sprintf("%s/import?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
 
 	fileDTOs := make([]importFileDTO, len(files))

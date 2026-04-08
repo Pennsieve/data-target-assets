@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -10,6 +11,28 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/google/uuid"
 )
+
+// loadAssetProperties reads a JSON file and returns it as a map.
+// If filename is empty or the file does not exist, returns an empty map.
+func loadAssetProperties(inputDir, filename string) (map[string]interface{}, error) {
+	if filename == "" {
+		return map[string]interface{}{}, nil
+	}
+	path := filepath.Join(inputDir, filename)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("Asset properties file %s not found, using empty properties", path)
+			return map[string]interface{}{}, nil
+		}
+		return nil, fmt.Errorf("reading asset properties file %s: %w", path, err)
+	}
+	var props map[string]interface{}
+	if err := json.Unmarshal(data, &props); err != nil {
+		return nil, fmt.Errorf("parsing asset properties file %s: %w", path, err)
+	}
+	return props, nil
+}
 
 // Config holds the environment configuration passed by the orchestrator.
 type Config struct {
@@ -22,9 +45,10 @@ type Config struct {
 	// Target-specific env vars
 	DatasetID      string
 	OrganizationID string
-	PackageID      string
-	ImportType     string
-	AssetType      string
+	PackageID           string
+	ImportType          string
+	AssetType           string
+	AssetPropertiesFile string
 }
 
 // LambdaEvent mirrors the per-invocation payload fields sent by the
@@ -59,7 +83,8 @@ func loadConfig() (*Config, error) {
 		OrganizationID: os.Getenv("ORGANIZATION_ID"),
 		PackageID:      os.Getenv("PACKAGE_ID"),
 		ImportType:     os.Getenv("IMPORT_TYPE"),
-		AssetType:      os.Getenv("ASSET_TYPE"),
+		AssetType:           os.Getenv("ASSET_TYPE"),
+		AssetPropertiesFile: os.Getenv("ASSET_PROPERTIES_FILE"),
 	}
 
 	if cfg.APIHost2 == "" {
@@ -137,10 +162,31 @@ func run() error {
 	log.Printf("  assetType:      %s", cfg.AssetType)
 	log.Printf("  apiHost2:       %s", cfg.APIHost2)
 
+	// Load asset properties from JSON file (if configured)
+	assetProperties, err := loadAssetProperties(cfg.InputDir, cfg.AssetPropertiesFile)
+	if err != nil {
+		return fmt.Errorf("failed to load asset properties: %w", err)
+	}
+	if cfg.AssetPropertiesFile != "" {
+		log.Printf("Loaded asset properties from %s", cfg.AssetPropertiesFile)
+	}
+
 	// Discover files from input directory
 	files, err := discoverFiles(cfg.InputDir)
 	if err != nil {
 		return fmt.Errorf("failed to discover files in %s: %w", cfg.InputDir, err)
+	}
+
+	// Exclude the properties file from uploads
+	if cfg.AssetPropertiesFile != "" {
+		propsPath := filepath.Join(cfg.InputDir, cfg.AssetPropertiesFile)
+		filtered := files[:0]
+		for _, f := range files {
+			if f != propsPath {
+				filtered = append(filtered, f)
+			}
+		}
+		files = filtered
 	}
 
 	if len(files) == 0 {
@@ -197,7 +243,10 @@ func run() error {
 		packageID,
 		cfg.ImportType,
 		importFiles,
-		map[string]string{"asset_type": cfg.AssetType},
+		map[string]interface{}{
+			"asset_type": cfg.AssetType,
+			"properties": assetProperties,
+		},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create import: %w", err)
