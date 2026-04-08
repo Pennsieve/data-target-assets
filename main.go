@@ -24,7 +24,7 @@ type Config struct {
 	OrganizationID string
 	PackageID      string
 	ImportType     string
-	ViewerType     string
+	AssetType      string
 }
 
 // LambdaEvent mirrors the per-invocation payload fields sent by the
@@ -59,7 +59,7 @@ func loadConfig() (*Config, error) {
 		OrganizationID: os.Getenv("ORGANIZATION_ID"),
 		PackageID:      os.Getenv("PACKAGE_ID"),
 		ImportType:     os.Getenv("IMPORT_TYPE"),
-		ViewerType:     os.Getenv("VIEWER_TYPE"),
+		AssetType:      os.Getenv("ASSET_TYPE"),
 	}
 
 	if cfg.APIHost2 == "" {
@@ -68,8 +68,8 @@ func loadConfig() (*Config, error) {
 	if cfg.ImportType == "" {
 		cfg.ImportType = "viewerAssets"
 	}
-	if cfg.ViewerType == "" {
-		cfg.ViewerType = "parquet-umap-viewer"
+	if cfg.AssetType == "" {
+		cfg.AssetType = "parquet-umap-viewer"
 	}
 
 	if cfg.InputDir == "" {
@@ -134,7 +134,7 @@ func run() error {
 	log.Printf("  datasetId:      %s", cfg.DatasetID)
 	log.Printf("  organizationId: %s", cfg.OrganizationID)
 	log.Printf("  importType:     %s", cfg.ImportType)
-	log.Printf("  viewerType:     %s", cfg.ViewerType)
+	log.Printf("  assetType:      %s", cfg.AssetType)
 	log.Printf("  apiHost2:       %s", cfg.APIHost2)
 
 	// Discover files from input directory
@@ -197,7 +197,7 @@ func run() error {
 		packageID,
 		cfg.ImportType,
 		importFiles,
-		map[string]string{"viewerType": cfg.ViewerType},
+		map[string]string{"asset_type": cfg.AssetType},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create import: %w", err)

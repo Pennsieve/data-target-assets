@@ -6,7 +6,7 @@ A Pennsieve data target that imports asset files (e.g. viewer assets) into the p
 
 1. Discovers files in `INPUT_DIR`
 2. Resolves the target package ID — uses `PACKAGE_ID` directly, or looks it up from the execution run's data source if set to `"default"`
-3. Creates an import job via `POST /import` with configurable import type and viewer type
+3. Creates an import job via `POST /import` with configurable import type and asset type
 4. Uploads files in parallel using presigned S3 URLs
 
 Authentication uses callback tokens from the workflow orchestrator.
@@ -30,7 +30,7 @@ Authentication uses callback tokens from the workflow orchestrator.
 | `PENNSIEVE_API_HOST2` | `https://api2.pennsieve.net` | Pennsieve API endpoint |
 | `ORGANIZATION_ID` | | Organization ID (for logging) |
 | `IMPORT_TYPE` | `viewerAssets` | Import type sent to the `/import` API |
-| `VIEWER_TYPE` | `parquet-umap-viewer` | Viewer type option in the import body |
+| `ASSET_TYPE` | `parquet-umap-viewer` | Asset type option in the import body |
 
 ### Lambda Mode
 
@@ -46,7 +46,7 @@ When running as a Lambda function (`AWS_LAMBDA_RUNTIME_API` is set), the handler
   "targetType": "...",
   "params": {
     "IMPORT_TYPE": "viewerAssets",
-    "VIEWER_TYPE": "parquet-umap-viewer",
+    "ASSET_TYPE": "parquet-umap-viewer",
     "PACKAGE_ID": "..."
   }
 }
@@ -77,7 +77,7 @@ The target sends the following to `POST {apiHost2}/import?dataset_id={datasetId}
     {"upload_key": "<uuid>", "file_path": "<filename>"}
   ],
   "options": {
-    "viewerType": "<VIEWER_TYPE>"
+    "asset_type": "<ASSET_TYPE>"
   }
 }
 ```
