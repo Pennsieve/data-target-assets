@@ -81,7 +81,7 @@ func (c *PennsieveClient) GetExecutionRun(runID string) (*ExecutionRunDetail, er
 		return nil, fmt.Errorf("creating execution run request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", fmt.Sprintf("Callback %s", c.callbackToken))
+	c.setAuthHeader(req)
 
 	var run ExecutionRunDetail
 	if err := c.doJSON(req, &run); err != nil {
