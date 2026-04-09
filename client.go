@@ -43,39 +43,39 @@ type DataSourceInput struct {
 	Path       string   `json:"path,omitempty"`
 }
 
-// ImportFile represents a file to be included in an import request.
-type ImportFile struct {
-	UploadKey string `json:"upload_key"`
-	FilePath  string `json:"file_path"`
-	LocalPath string `json:"-"`
-}
-
-// importRequest is the POST body for /import.
-type importRequest struct {
-	IntegrationID string            `json:"integration_id"`
-	PackageID     string            `json:"package_id"`
-	ImportType    string            `json:"import_type"`
-	Files         []importFileDTO   `json:"files"`
-	Options       map[string]interface{} `json:"options"`
-}
-
-type importFileDTO struct {
-	UploadKey string `json:"upload_key"`
-	FilePath  string `json:"file_path"`
-}
-
-type importResponse struct {
-	ID string `json:"id"`
-}
-
 // UploadCredentials holds temporary AWS credentials for S3 uploads.
 type UploadCredentials struct {
-	AccessKeyID    string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	SessionToken   string `json:"sessionToken"`
+	AccessKeyID    string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+	SessionToken   string `json:"session_token"`
 	Expiration     string `json:"expiration"`
 	Bucket         string `json:"bucket"`
 	Region         string `json:"region"`
+	KeyPrefix      string `json:"key_prefix"`
+}
+
+type createViewerAssetRequest struct {
+	Name       string                 `json:"name"`
+	AssetType  string                 `json:"asset_type"`
+	Properties map[string]interface{} `json:"properties"`
+	PackageIDs []string               `json:"package_ids,omitempty"`
+}
+
+type viewerAssetResponse struct {
+	ID        string `json:"id"`
+	DatasetID string `json:"dataset_id"`
+	Name      string `json:"name"`
+	AssetType string `json:"asset_type"`
+	Status    string `json:"status"`
+}
+
+type createViewerAssetResponseBody struct {
+	Asset             viewerAssetResponse `json:"asset"`
+	UploadCredentials UploadCredentials   `json:"upload_credentials"`
+}
+
+type updateViewerAssetRequest struct {
+	Status *string `json:"status,omitempty"`
 }
 
 // GetExecutionRun fetches the execution run to resolve data sources and package IDs.
@@ -96,86 +96,78 @@ func (c *PennsieveClient) GetExecutionRun(runID string) (*ExecutionRunDetail, er
 	return &run, nil
 }
 
-// GetPackageID extracts the single package ID from the execution run's data sources.
-// Assumes a single data source with a single package.
-func GetPackageID(run *ExecutionRunDetail) (string, error) {
+// GetPackageIDs extracts all package IDs from the execution run's data sources.
+func GetPackageIDs(run *ExecutionRunDetail) ([]string, error) {
 	if len(run.DataSources) == 0 {
-		return "", fmt.Errorf("execution run has no data sources")
+		return nil, fmt.Errorf("execution run has no data sources")
 	}
-	if len(run.DataSources) > 1 {
-		return "", fmt.Errorf("execution run has %d data sources, expected 1", len(run.DataSources))
-	}
+	var packageIDs []string
 	for _, ds := range run.DataSources {
-		if len(ds.PackageIDs) == 0 {
-			return "", fmt.Errorf("data source has no package IDs")
-		}
-		if len(ds.PackageIDs) > 1 {
-			return "", fmt.Errorf("data source has %d packages, expected 1", len(ds.PackageIDs))
-		}
-		return ds.PackageIDs[0], nil
+		packageIDs = append(packageIDs, ds.PackageIDs...)
 	}
-	return "", fmt.Errorf("unreachable")
+	if len(packageIDs) == 0 {
+		return nil, fmt.Errorf("execution run has no package IDs")
+	}
+	return packageIDs, nil
 }
 
-// CreateImport creates a new import job via POST /import.
-func (c *PennsieveClient) CreateImport(datasetID, integrationID, packageID, importType string, files []ImportFile, options map[string]interface{}) (string, error) {
-	reqURL := fmt.Sprintf("%s/import/manifest?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
+// CreateViewerAsset creates a viewer asset and returns upload credentials.
+func (c *PennsieveClient) CreateViewerAsset(datasetID, name, assetType string, properties map[string]interface{}, packageIDs []string) (*createViewerAssetResponseBody, error) {
+	reqURL := fmt.Sprintf("%s/packages/assets?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
 
-	fileDTOs := make([]importFileDTO, len(files))
-	for i, f := range files {
-		fileDTOs[i] = importFileDTO{
-			UploadKey: f.UploadKey,
-			FilePath:  f.FilePath,
-		}
-	}
-
-	body := importRequest{
-		IntegrationID: integrationID,
-		PackageID:     packageID,
-		ImportType:    importType,
-		Files:         fileDTOs,
-		Options:       options,
+	body := createViewerAssetRequest{
+		Name:       name,
+		AssetType:  assetType,
+		Properties: properties,
+		PackageIDs: packageIDs,
 	}
 
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return "", fmt.Errorf("marshaling import request: %w", err)
+		return nil, fmt.Errorf("marshaling create asset request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(jsonBody))
 	if err != nil {
-		return "", fmt.Errorf("creating import request: %w", err)
+		return nil, fmt.Errorf("creating asset request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(req)
 
-	var result importResponse
+	var result createViewerAssetResponseBody
 	if err := c.doJSON(req, &result); err != nil {
-		return "", fmt.Errorf("creating import: %w", err)
+		return nil, fmt.Errorf("creating viewer asset: %w", err)
 	}
-	return result.ID, nil
+	return &result, nil
 }
 
-// GetUploadCredentials gets temporary S3 credentials scoped to the import's prefix.
-func (c *PennsieveClient) GetUploadCredentials(importID, datasetID string) (*UploadCredentials, error) {
-	reqURL := fmt.Sprintf("%s/import/%s/upload-credentials?dataset_id=%s",
+// MarkViewerAssetReady marks a viewer asset as ready after upload completes.
+func (c *PennsieveClient) MarkViewerAssetReady(assetID, datasetID string) error {
+	reqURL := fmt.Sprintf("%s/packages/assets/%s?dataset_id=%s",
 		c.apiHost2,
-		url.PathEscape(importID),
+		url.PathEscape(assetID),
 		url.QueryEscape(datasetID),
 	)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	status := "ready"
+	body := updateViewerAssetRequest{Status: &status}
+	jsonBody, err := json.Marshal(body)
 	if err != nil {
-		return nil, fmt.Errorf("creating upload-credentials request: %w", err)
+		return fmt.Errorf("marshaling update request: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
+
+	req, err := http.NewRequest("PATCH", reqURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("creating update request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(req)
 
-	var result UploadCredentials
+	var result json.RawMessage
 	if err := c.doJSON(req, &result); err != nil {
-		return nil, fmt.Errorf("getting upload credentials: %w", err)
+		return fmt.Errorf("marking asset ready: %w", err)
 	}
-	return &result, nil
+	return nil
 }
 
 func (c *PennsieveClient) setAuthHeader(req *http.Request) {
