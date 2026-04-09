@@ -228,9 +228,10 @@ func run() error {
 	// Step 3: Build import file list
 	importFiles := make([]ImportFile, len(files))
 	for i, f := range files {
+		rel, _ := filepath.Rel(cfg.InputDir, f)
 		importFiles[i] = ImportFile{
 			UploadKey: uuid.New().String(),
-			FilePath:  filepath.Base(f),
+			FilePath:  rel,
 			LocalPath: f,
 		}
 	}
