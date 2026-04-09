@@ -7,7 +7,8 @@ A Pennsieve data target that imports asset files (e.g. viewer assets) into the p
 1. Discovers files in `INPUT_DIR`
 2. Resolves the target package ID — uses `PACKAGE_ID` directly, or looks it up from the execution run's data source if set to `"default"`
 3. Creates an import job via `POST /import` with configurable import type and asset type
-4. Uploads files in parallel using presigned S3 URLs
+4. Gets scoped S3 credentials from the import service (single API call)
+5. Uploads files directly to S3 using the AWS SDK
 
 Authentication uses callback tokens from the workflow orchestrator.
 
@@ -31,6 +32,7 @@ Authentication uses callback tokens from the workflow orchestrator.
 | `ORGANIZATION_ID` | | Organization ID (for logging) |
 | `IMPORT_TYPE` | `viewerAssets` | Import type sent to the `/import` API |
 | `ASSET_TYPE` | `parquet-umap-viewer` | Asset type option in the import body |
+| `ASSET_PROPERTIES_FILE` | | JSON file in INPUT_DIR with asset properties (optional, defaults to `{}`) |
 
 ### Lambda Mode
 
@@ -82,4 +84,4 @@ The target sends the following to `POST {apiHost2}/import?dataset_id={datasetId}
 }
 ```
 
-Each file is then uploaded via a presigned URL obtained from `GET /import/{importId}/upload/{uploadKey}/presign`.
+After creating the import, the target calls `GET /import/{importId}/upload-credentials` once to get temporary S3 credentials scoped to the import prefix, then uploads all files directly to S3 at `s3://{bucket}/{importId}/{uploadKey}`.

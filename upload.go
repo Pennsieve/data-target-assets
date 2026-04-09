@@ -1,106 +1,71 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
-	"math"
-	"net/http"
 	"os"
-	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
-// UploadFiles uploads all files in parallel using presigned URLs.
-// concurrency controls the number of simultaneous uploads.
-func UploadFiles(files []ImportFile, getPresignURL func(uploadKey string) (string, error), concurrency int) error {
-	var (
-		wg   sync.WaitGroup
-		mu   sync.Mutex
-		errs []error
-		done int
+const partSize = 64 * 1024 * 1024 // 64 MB per part
+
+// UploadFiles uploads all files to S3 using temporary credentials scoped to the import prefix.
+func UploadFiles(ctx context.Context, creds *UploadCredentials, importID string, files []ImportFile, orgID, datasetID string) error {
+	region := creds.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+
+	expiration, _ := time.Parse(time.RFC3339, creds.Expiration)
+	log.Printf("Upload credentials expire at %s", expiration.Format("15:04:05"))
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion(region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			creds.AccessKeyID,
+			creds.SecretAccessKey,
+			creds.SessionToken,
+		)),
 	)
-
-	sem := make(chan struct{}, concurrency)
-	client := &http.Client{Timeout: 5 * time.Minute}
-
-	for _, f := range files {
-		wg.Add(1)
-		go func(file ImportFile) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			if err := uploadFileWithRetry(client, file, getPresignURL, 5); err != nil {
-				mu.Lock()
-				errs = append(errs, fmt.Errorf("%s: %w", file.FilePath, err))
-				mu.Unlock()
-				return
-			}
-
-			mu.Lock()
-			done++
-			log.Printf("Uploaded %d/%d: %s", done, len(files), file.FilePath)
-			mu.Unlock()
-		}(f)
+	if err != nil {
+		return fmt.Errorf("creating S3 config: %w", err)
 	}
 
-	wg.Wait()
+	s3Client := s3.NewFromConfig(cfg)
+	uploader := manager.NewUploader(s3Client, func(u *manager.Uploader) {
+		u.PartSize = partSize
+	})
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to upload %d files: %v", len(errs), errs)
-	}
-	return nil
-}
+	tags := fmt.Sprintf("OrgId=%s&DatasetId=%s", orgID, datasetID)
 
-func uploadFileWithRetry(client *http.Client, file ImportFile, getPresignURL func(string) (string, error), maxRetries int) error {
-	var lastErr error
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * time.Second
-			log.Printf("Retrying %s (attempt %d/%d) after %s...", file.FilePath, attempt+1, maxRetries, backoff)
-			time.Sleep(backoff)
+	for i, f := range files {
+		s3Key := fmt.Sprintf("%s/%s", importID, f.UploadKey)
+		log.Printf("Uploading %d/%d: %s → s3://%s/%s", i+1, len(files), f.FilePath, creds.Bucket, s3Key)
+
+		file, err := os.Open(f.LocalPath)
+		if err != nil {
+			return fmt.Errorf("opening %s: %w", f.LocalPath, err)
 		}
 
-		lastErr = uploadFile(client, file, getPresignURL)
-		if lastErr == nil {
-			return nil
+		_, err = uploader.Upload(ctx, &s3.PutObjectInput{
+			Bucket:            aws.String(creds.Bucket),
+			Key:               aws.String(s3Key),
+			Body:              file,
+			ChecksumAlgorithm: s3types.ChecksumAlgorithmSha256,
+			Tagging:           aws.String(tags),
+		})
+		file.Close()
+		if err != nil {
+			return fmt.Errorf("uploading %s: %w", f.FilePath, err)
 		}
-		log.Printf("Upload attempt %d/%d for %s failed: %v", attempt+1, maxRetries, file.FilePath, lastErr)
-	}
-	return lastErr
-}
-
-func uploadFile(client *http.Client, file ImportFile, getPresignURL func(string) (string, error)) error {
-	presignURL, err := getPresignURL(file.UploadKey)
-	if err != nil {
-		return fmt.Errorf("getting presign URL: %w", err)
-	}
-
-	f, err := os.Open(file.LocalPath)
-	if err != nil {
-		return fmt.Errorf("opening file: %w", err)
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return fmt.Errorf("stat file: %w", err)
-	}
-
-	req, err := http.NewRequest("PUT", presignURL, f)
-	if err != nil {
-		return fmt.Errorf("creating upload request: %w", err)
-	}
-	req.ContentLength = info.Size()
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("upload request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("upload returned HTTP %d", resp.StatusCode)
 	}
 
 	return nil

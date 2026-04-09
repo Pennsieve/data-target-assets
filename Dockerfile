@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.5
 
 # Stage 1: Build
-FROM --platform=$BUILDPLATFORM golang:1.23.6-bullseye AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-bullseye AS builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download

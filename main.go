@@ -253,16 +253,21 @@ func run() error {
 	}
 	log.Printf("Created import: %s", importID)
 
-	// Step 5: Upload files via presigned URLs
-	log.Printf("Starting upload of %d files...", len(importFiles))
-	getPresignURL := func(uploadKey string) (string, error) {
-		return client.GetPresignURL(importID, cfg.DatasetID, uploadKey)
+	// Step 5: Get scoped S3 credentials for upload
+	log.Printf("Getting upload credentials...")
+	creds, err := client.GetUploadCredentials(importID, cfg.DatasetID)
+	if err != nil {
+		return fmt.Errorf("failed to get upload credentials: %w", err)
 	}
-	if err := UploadFiles(importFiles, getPresignURL, 4); err != nil {
+	log.Printf("Obtained upload credentials for bucket %s", creds.Bucket)
+
+	// Step 6: Upload files directly to S3
+	log.Printf("Starting S3 upload of %d files...", len(importFiles))
+	if err := UploadFiles(context.Background(), creds, importID, importFiles, cfg.OrganizationID, cfg.DatasetID); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
-	// Step 6: Summary
+	// Step 7: Summary
 	log.Printf("Import complete: %d files uploaded to import %s", len(files), importID)
 	return nil
 }

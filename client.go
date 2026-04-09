@@ -68,8 +68,14 @@ type importResponse struct {
 	ID string `json:"id"`
 }
 
-type presignResponse struct {
-	URL string `json:"url"`
+// UploadCredentials holds temporary AWS credentials for S3 uploads.
+type UploadCredentials struct {
+	AccessKeyID    string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	SessionToken   string `json:"sessionToken"`
+	Expiration     string `json:"expiration"`
+	Bucket         string `json:"bucket"`
+	Region         string `json:"region"`
 }
 
 // GetExecutionRun fetches the execution run to resolve data sources and package IDs.
@@ -113,7 +119,7 @@ func GetPackageID(run *ExecutionRunDetail) (string, error) {
 
 // CreateImport creates a new import job via POST /import.
 func (c *PennsieveClient) CreateImport(datasetID, integrationID, packageID, importType string, files []ImportFile, options map[string]interface{}) (string, error) {
-	reqURL := fmt.Sprintf("%s/import?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
+	reqURL := fmt.Sprintf("%s/import/manifest?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
 
 	fileDTOs := make([]importFileDTO, len(files))
 	for i, f := range files {
@@ -150,27 +156,26 @@ func (c *PennsieveClient) CreateImport(datasetID, integrationID, packageID, impo
 	return result.ID, nil
 }
 
-// GetPresignURL gets a presigned S3 URL for uploading a specific file.
-func (c *PennsieveClient) GetPresignURL(importID, datasetID, uploadKey string) (string, error) {
-	reqURL := fmt.Sprintf("%s/import/%s/upload/%s/presign?dataset_id=%s",
+// GetUploadCredentials gets temporary S3 credentials scoped to the import's prefix.
+func (c *PennsieveClient) GetUploadCredentials(importID, datasetID string) (*UploadCredentials, error) {
+	reqURL := fmt.Sprintf("%s/import/%s/upload-credentials?dataset_id=%s",
 		c.apiHost2,
 		url.PathEscape(importID),
-		url.PathEscape(uploadKey),
 		url.QueryEscape(datasetID),
 	)
 
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("creating presign request: %w", err)
+		return nil, fmt.Errorf("creating upload-credentials request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 	c.setAuthHeader(req)
 
-	var result presignResponse
+	var result UploadCredentials
 	if err := c.doJSON(req, &result); err != nil {
-		return "", fmt.Errorf("getting presign URL: %w", err)
+		return nil, fmt.Errorf("getting upload credentials: %w", err)
 	}
-	return result.URL, nil
+	return &result, nil
 }
 
 func (c *PennsieveClient) setAuthHeader(req *http.Request) {
