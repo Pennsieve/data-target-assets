@@ -44,7 +44,6 @@ type Config struct {
 	// Target-specific env vars
 	DatasetID           string
 	OrganizationID      string
-	PackageID           string
 	AssetType           string
 	AssetName           string
 	AssetPropertiesFile string
@@ -80,7 +79,6 @@ func loadConfig() (*Config, error) {
 		CallbackToken:       os.Getenv("CALLBACK_TOKEN"),
 		DatasetID:           os.Getenv("DATASET_ID"),
 		OrganizationID:      os.Getenv("ORGANIZATION_ID"),
-		PackageID:           os.Getenv("PACKAGE_ID"),
 		AssetType:           os.Getenv("ASSET_TYPE"),
 		AssetName:           os.Getenv("ASSET_NAME"),
 		AssetPropertiesFile: os.Getenv("ASSET_PROPERTIES_FILE"),
@@ -204,23 +202,17 @@ func run() error {
 	// Step 1: Create Pennsieve client (uses callback auth)
 	client := NewPennsieveClient(cfg.APIHost2, cfg.ExecutionRunID, cfg.CallbackToken)
 
-	// Step 2: Resolve package IDs from execution run or config
-	var packageIDs []string
-	if cfg.PackageID != "" && cfg.PackageID != "default" {
-		packageIDs = []string{cfg.PackageID}
-		slog.Info("using configured package ID", "packageId", cfg.PackageID)
-	} else {
-		slog.Info("resolving package IDs from execution run", "executionRunId", cfg.ExecutionRunID)
-		execRun, err := client.GetExecutionRun(cfg.ExecutionRunID)
-		if err != nil {
-			return fmt.Errorf("failed to get execution run: %w", err)
-		}
-		packageIDs, err = GetPackageIDs(execRun)
-		if err != nil {
-			return fmt.Errorf("failed to resolve package IDs: %w", err)
-		}
-		slog.Info("resolved package IDs", "count", len(packageIDs), "packageIds", packageIDs)
+	// Step 2: Resolve package IDs from execution run
+	slog.Info("resolving package IDs from execution run", "executionRunId", cfg.ExecutionRunID)
+	execRun, err := client.GetExecutionRun(cfg.ExecutionRunID)
+	if err != nil {
+		return fmt.Errorf("failed to get execution run: %w", err)
 	}
+	packageIDs, err := GetPackageIDs(execRun)
+	if err != nil {
+		return fmt.Errorf("failed to resolve package IDs: %w", err)
+	}
+	slog.Info("resolved package IDs", "count", len(packageIDs), "packageIds", packageIDs)
 
 	// Step 3: Create viewer asset (returns asset record + upload credentials)
 	slog.Info("creating viewer asset", "datasetId", cfg.DatasetID)
