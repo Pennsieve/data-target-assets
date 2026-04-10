@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -17,8 +18,8 @@ import (
 
 const partSize = 64 * 1024 * 1024 // 64 MB per part
 
-// UploadFiles uploads all files to S3 using temporary credentials scoped to the import prefix.
-func UploadFiles(ctx context.Context, creds *UploadCredentials, importID string, files []ImportFile, orgID, datasetID string) error {
+// UploadFiles uploads all files to S3 using temporary credentials scoped to the asset prefix.
+func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, inputDir string) error {
 	region := creds.Region
 	if region == "" {
 		region = "us-east-1"
@@ -44,15 +45,14 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, importID string,
 		u.PartSize = partSize
 	})
 
-	tags := fmt.Sprintf("OrgId=%s&DatasetId=%s", orgID, datasetID)
+	for i, localPath := range files {
+		rel, _ := relPath(inputDir, localPath)
+		s3Key := creds.KeyPrefix + rel
+		log.Printf("Uploading %d/%d: %s → s3://%s/%s", i+1, len(files), rel, creds.Bucket, s3Key)
 
-	for i, f := range files {
-		s3Key := fmt.Sprintf("%s/%s", importID, f.UploadKey)
-		log.Printf("Uploading %d/%d: %s → s3://%s/%s", i+1, len(files), f.FilePath, creds.Bucket, s3Key)
-
-		file, err := os.Open(f.LocalPath)
+		file, err := os.Open(localPath)
 		if err != nil {
-			return fmt.Errorf("opening %s: %w", f.LocalPath, err)
+			return fmt.Errorf("opening %s: %w", localPath, err)
 		}
 
 		_, err = uploader.Upload(ctx, &s3.PutObjectInput{
@@ -60,13 +60,16 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, importID string,
 			Key:               aws.String(s3Key),
 			Body:              file,
 			ChecksumAlgorithm: s3types.ChecksumAlgorithmSha256,
-			Tagging:           aws.String(tags),
 		})
 		file.Close()
 		if err != nil {
-			return fmt.Errorf("uploading %s: %w", f.FilePath, err)
+			return fmt.Errorf("uploading %s: %w", rel, err)
 		}
 	}
 
 	return nil
+}
+
+func relPath(base, target string) (string, error) {
+	return filepath.Rel(base, target)
 }

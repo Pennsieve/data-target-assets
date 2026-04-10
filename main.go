@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/google/uuid"
 )
 
 // loadAssetProperties reads a JSON file and returns it as a map.
@@ -43,11 +42,11 @@ type Config struct {
 	CallbackToken  string
 
 	// Target-specific env vars
-	DatasetID      string
-	OrganizationID string
+	DatasetID           string
+	OrganizationID      string
 	PackageID           string
-	ImportType          string
 	AssetType           string
+	AssetName           string
 	AssetPropertiesFile string
 }
 
@@ -75,26 +74,26 @@ type LambdaResponse struct {
 
 func loadConfig() (*Config, error) {
 	cfg := &Config{
-		InputDir:       os.Getenv("INPUT_DIR"),
-		APIHost2:       os.Getenv("PENNSIEVE_API_HOST2"),
-		ExecutionRunID: os.Getenv("EXECUTION_RUN_ID"),
-		CallbackToken:  os.Getenv("CALLBACK_TOKEN"),
-		DatasetID:      os.Getenv("DATASET_ID"),
-		OrganizationID: os.Getenv("ORGANIZATION_ID"),
-		PackageID:      os.Getenv("PACKAGE_ID"),
-		ImportType:     os.Getenv("IMPORT_TYPE"),
+		InputDir:            os.Getenv("INPUT_DIR"),
+		APIHost2:            os.Getenv("PENNSIEVE_API_HOST2"),
+		ExecutionRunID:      os.Getenv("EXECUTION_RUN_ID"),
+		CallbackToken:       os.Getenv("CALLBACK_TOKEN"),
+		DatasetID:           os.Getenv("DATASET_ID"),
+		OrganizationID:      os.Getenv("ORGANIZATION_ID"),
+		PackageID:           os.Getenv("PACKAGE_ID"),
 		AssetType:           os.Getenv("ASSET_TYPE"),
+		AssetName:           os.Getenv("ASSET_NAME"),
 		AssetPropertiesFile: os.Getenv("ASSET_PROPERTIES_FILE"),
 	}
 
 	if cfg.APIHost2 == "" {
 		cfg.APIHost2 = "https://api2.pennsieve.net"
 	}
-	if cfg.ImportType == "" {
-		cfg.ImportType = "viewerAssets"
-	}
 	if cfg.AssetType == "" {
 		cfg.AssetType = "parquet-umap-viewer"
+	}
+	if cfg.AssetName == "" {
+		cfg.AssetName = cfg.AssetType
 	}
 
 	if cfg.InputDir == "" {
@@ -108,9 +107,6 @@ func loadConfig() (*Config, error) {
 	}
 	if cfg.ExecutionRunID == "" {
 		return nil, fmt.Errorf("EXECUTION_RUN_ID is required")
-	}
-	if cfg.PackageID == "" {
-		return nil, fmt.Errorf("PACKAGE_ID is required")
 	}
 
 	return cfg, nil
@@ -157,9 +153,8 @@ func run() error {
 	log.Printf("  executionRunId: %s", cfg.ExecutionRunID)
 	log.Printf("  inputDir:       %s", cfg.InputDir)
 	log.Printf("  datasetId:      %s", cfg.DatasetID)
-	log.Printf("  organizationId: %s", cfg.OrganizationID)
-	log.Printf("  importType:     %s", cfg.ImportType)
 	log.Printf("  assetType:      %s", cfg.AssetType)
+	log.Printf("  assetName:      %s", cfg.AssetName)
 	log.Printf("  apiHost2:       %s", cfg.APIHost2)
 
 	// Load asset properties from JSON file (if configured)
@@ -194,7 +189,7 @@ func run() error {
 		return nil
 	}
 
-	log.Printf("Discovered %d files to import:", len(files))
+	log.Printf("Discovered %d files to upload:", len(files))
 	for _, f := range files {
 		info, _ := os.Stat(f)
 		size := int64(0)
@@ -208,68 +203,52 @@ func run() error {
 	// Step 1: Create Pennsieve client (uses callback auth)
 	client := NewPennsieveClient(cfg.APIHost2, cfg.ExecutionRunID, cfg.CallbackToken)
 
-	// Step 2: Resolve package ID — use provided value or look up from execution run
-	packageID := cfg.PackageID
-	if packageID == "default" {
-		log.Printf("PACKAGE_ID is 'default', resolving from execution run %s...", cfg.ExecutionRunID)
-		run, err := client.GetExecutionRun(cfg.ExecutionRunID)
+	// Step 2: Resolve package IDs from execution run or config
+	var packageIDs []string
+	if cfg.PackageID != "" && cfg.PackageID != "default" {
+		packageIDs = []string{cfg.PackageID}
+		log.Printf("Using PACKAGE_ID: %s", cfg.PackageID)
+	} else {
+		log.Printf("Resolving package IDs from execution run %s...", cfg.ExecutionRunID)
+		execRun, err := client.GetExecutionRun(cfg.ExecutionRunID)
 		if err != nil {
 			return fmt.Errorf("failed to get execution run: %w", err)
 		}
-		packageID, err = GetPackageID(run)
+		packageIDs, err = GetPackageIDs(execRun)
 		if err != nil {
-			return fmt.Errorf("failed to resolve package ID: %w", err)
+			return fmt.Errorf("failed to resolve package IDs: %w", err)
 		}
-		log.Printf("Resolved package ID: %s", packageID)
-	} else {
-		log.Printf("Using PACKAGE_ID: %s", packageID)
+		log.Printf("Resolved %d package IDs: %v", len(packageIDs), packageIDs)
 	}
 
-	// Step 3: Build import file list
-	importFiles := make([]ImportFile, len(files))
-	for i, f := range files {
-		rel, _ := filepath.Rel(cfg.InputDir, f)
-		importFiles[i] = ImportFile{
-			UploadKey: uuid.New().String(),
-			FilePath:  rel,
-			LocalPath: f,
-		}
-	}
-
-	// Step 4: Create import via /import API
-	log.Printf("Creating import for dataset %s, package %s...", cfg.DatasetID, packageID)
-	importID, err := client.CreateImport(
+	// Step 3: Create viewer asset (returns asset record + upload credentials)
+	log.Printf("Creating viewer asset for dataset %s...", cfg.DatasetID)
+	result, err := client.CreateViewerAsset(
 		cfg.DatasetID,
-		cfg.ExecutionRunID,
-		packageID,
-		cfg.ImportType,
-		importFiles,
-		map[string]interface{}{
-			"asset_type": cfg.AssetType,
-			"properties": assetProperties,
-		},
+		cfg.AssetName,
+		cfg.AssetType,
+		assetProperties,
+		packageIDs,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create import: %w", err)
+		return fmt.Errorf("failed to create viewer asset: %w", err)
 	}
-	log.Printf("Created import: %s", importID)
+	assetID := result.Asset.ID
+	log.Printf("Created viewer asset: %s (prefix: %s)", assetID, result.UploadCredentials.KeyPrefix)
 
-	// Step 5: Get scoped S3 credentials for upload
-	log.Printf("Getting upload credentials...")
-	creds, err := client.GetUploadCredentials(importID, cfg.DatasetID)
-	if err != nil {
-		return fmt.Errorf("failed to get upload credentials: %w", err)
-	}
-	log.Printf("Obtained upload credentials for bucket %s", creds.Bucket)
-
-	// Step 6: Upload files directly to S3
-	log.Printf("Starting S3 upload of %d files...", len(importFiles))
-	if err := UploadFiles(context.Background(), creds, importID, importFiles, cfg.OrganizationID, cfg.DatasetID); err != nil {
+	// Step 4: Upload files directly to storage bucket
+	log.Printf("Starting S3 upload of %d files...", len(files))
+	if err := UploadFiles(context.Background(), &result.UploadCredentials, files, cfg.InputDir); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
-	// Step 7: Summary
-	log.Printf("Import complete: %d files uploaded to import %s", len(files), importID)
+	// Step 5: Mark asset as ready
+	log.Printf("Marking asset %s as ready...", assetID)
+	if err := client.MarkViewerAssetReady(assetID, cfg.DatasetID); err != nil {
+		return fmt.Errorf("failed to mark asset ready: %w", err)
+	}
+
+	log.Printf("Asset upload complete: %d files uploaded to asset %s", len(files), assetID)
 	return nil
 }
 
