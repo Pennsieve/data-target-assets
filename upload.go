@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,7 +26,7 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, 
 	}
 
 	expiration, _ := time.Parse(time.RFC3339, creds.Expiration)
-	log.Printf("Upload credentials expire at %s", expiration.Format("15:04:05"))
+	slog.Info("upload credentials loaded", "expiresAt", expiration.Format("15:04:05"))
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion(region),
@@ -48,7 +48,7 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, 
 	for i, localPath := range files {
 		rel, _ := relPath(inputDir, localPath)
 		s3Key := creds.KeyPrefix + rel
-		log.Printf("Uploading %d/%d: %s → s3://%s/%s", i+1, len(files), rel, creds.Bucket, s3Key)
+		slog.Info("uploading file", "index", i+1, "total", len(files), "file", rel, "bucket", creds.Bucket, "key", s3Key)
 
 		file, err := os.Open(localPath)
 		if err != nil {

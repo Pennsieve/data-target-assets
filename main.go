@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -21,7 +21,7 @@ func loadAssetProperties(inputDir, filename string) (map[string]interface{}, err
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("Asset properties file %s not found, using empty properties", path)
+			slog.Warn("asset properties file not found, using empty properties", "path", path)
 			return map[string]interface{}{}, nil
 		}
 		return nil, fmt.Errorf("reading asset properties file %s: %w", path, err)
@@ -149,13 +149,14 @@ func run() error {
 		return fmt.Errorf("configuration error: %w", err)
 	}
 
-	log.Printf("Starting asset-import target")
-	log.Printf("  executionRunId: %s", cfg.ExecutionRunID)
-	log.Printf("  inputDir:       %s", cfg.InputDir)
-	log.Printf("  datasetId:      %s", cfg.DatasetID)
-	log.Printf("  assetType:      %s", cfg.AssetType)
-	log.Printf("  assetName:      %s", cfg.AssetName)
-	log.Printf("  apiHost2:       %s", cfg.APIHost2)
+	slog.Info("starting asset-import target",
+		"executionRunId", cfg.ExecutionRunID,
+		"inputDir", cfg.InputDir,
+		"datasetId", cfg.DatasetID,
+		"assetType", cfg.AssetType,
+		"assetName", cfg.AssetName,
+		"apiHost2", cfg.APIHost2,
+	)
 
 	// Load asset properties from JSON file (if configured)
 	assetProperties, err := loadAssetProperties(cfg.InputDir, cfg.AssetPropertiesFile)
@@ -163,7 +164,7 @@ func run() error {
 		return fmt.Errorf("failed to load asset properties: %w", err)
 	}
 	if cfg.AssetPropertiesFile != "" {
-		log.Printf("Loaded asset properties from %s", cfg.AssetPropertiesFile)
+		slog.Info("loaded asset properties", "file", cfg.AssetPropertiesFile)
 	}
 
 	// Discover files from input directory
@@ -185,11 +186,11 @@ func run() error {
 	}
 
 	if len(files) == 0 {
-		log.Printf("No files found in %s, nothing to import", cfg.InputDir)
+		slog.Info("no files found, nothing to import", "inputDir", cfg.InputDir)
 		return nil
 	}
 
-	log.Printf("Discovered %d files to upload:", len(files))
+	slog.Info("discovered files to upload", "count", len(files))
 	for _, f := range files {
 		info, _ := os.Stat(f)
 		size := int64(0)
@@ -197,7 +198,7 @@ func run() error {
 			size = info.Size()
 		}
 		rel, _ := filepath.Rel(cfg.InputDir, f)
-		log.Printf("  %s (%d bytes)", rel, size)
+		slog.Info("file", "path", rel, "bytes", size)
 	}
 
 	// Step 1: Create Pennsieve client (uses callback auth)
@@ -207,9 +208,9 @@ func run() error {
 	var packageIDs []string
 	if cfg.PackageID != "" && cfg.PackageID != "default" {
 		packageIDs = []string{cfg.PackageID}
-		log.Printf("Using PACKAGE_ID: %s", cfg.PackageID)
+		slog.Info("using configured package ID", "packageId", cfg.PackageID)
 	} else {
-		log.Printf("Resolving package IDs from execution run %s...", cfg.ExecutionRunID)
+		slog.Info("resolving package IDs from execution run", "executionRunId", cfg.ExecutionRunID)
 		execRun, err := client.GetExecutionRun(cfg.ExecutionRunID)
 		if err != nil {
 			return fmt.Errorf("failed to get execution run: %w", err)
@@ -218,11 +219,11 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("failed to resolve package IDs: %w", err)
 		}
-		log.Printf("Resolved %d package IDs: %v", len(packageIDs), packageIDs)
+		slog.Info("resolved package IDs", "count", len(packageIDs), "packageIds", packageIDs)
 	}
 
 	// Step 3: Create viewer asset (returns asset record + upload credentials)
-	log.Printf("Creating viewer asset for dataset %s...", cfg.DatasetID)
+	slog.Info("creating viewer asset", "datasetId", cfg.DatasetID)
 	result, err := client.CreateViewerAsset(
 		cfg.DatasetID,
 		cfg.AssetName,
@@ -234,28 +235,28 @@ func run() error {
 		return fmt.Errorf("failed to create viewer asset: %w", err)
 	}
 	assetID := result.Asset.ID
-	log.Printf("Created viewer asset: %s (prefix: %s)", assetID, result.UploadCredentials.KeyPrefix)
+	slog.Info("created viewer asset", "assetId", assetID, "keyPrefix", result.UploadCredentials.KeyPrefix)
 
 	// Step 4: Upload files directly to storage bucket
-	log.Printf("Starting S3 upload of %d files...", len(files))
+	slog.Info("starting S3 upload", "fileCount", len(files))
 	if err := UploadFiles(context.Background(), &result.UploadCredentials, files, cfg.InputDir); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
 	// Step 5: Mark asset as ready
-	log.Printf("Marking asset %s as ready...", assetID)
+	slog.Info("marking asset as ready", "assetId", assetID)
 	if err := client.MarkViewerAssetReady(assetID, cfg.DatasetID); err != nil {
 		return fmt.Errorf("failed to mark asset ready: %w", err)
 	}
 
-	log.Printf("Asset upload complete: %d files uploaded to asset %s", len(files), assetID)
+	slog.Info("asset upload complete", "fileCount", len(files), "assetId", assetID)
 	return nil
 }
 
 // lambdaHandler bridges the Lambda invocation payload to environment variables,
 // then runs the same logic as ECS mode.
 func lambdaHandler(_ context.Context, event LambdaEvent) (LambdaResponse, error) {
-	log.Printf("Lambda handler invoked")
+	slog.Info("lambda handler invoked")
 
 	os.Setenv("INPUT_DIR", event.InputDir)
 	os.Setenv("EXECUTION_RUN_ID", event.ExecutionRunID)
@@ -276,15 +277,16 @@ func lambdaHandler(_ context.Context, event LambdaEvent) (LambdaResponse, error)
 }
 
 func main() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 
 	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
-		log.Printf("Detected Lambda runtime, starting RIC handler")
+		slog.Info("detected Lambda runtime, starting RIC handler")
 		lambda.Start(lambdaHandler)
 	} else {
-		log.Printf("Running in ECS/local mode")
+		slog.Info("running in ECS/local mode")
 		if err := run(); err != nil {
-			log.Fatalf("%v", err)
+			slog.Error("fatal error", "error", err)
+			os.Exit(1)
 		}
 	}
 }
