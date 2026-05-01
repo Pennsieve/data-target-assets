@@ -1,4 +1,4 @@
-package main
+package pennsieve
 
 import (
 	"context"
@@ -18,7 +18,9 @@ import (
 
 const partSize = 64 * 1024 * 1024 // 64 MB per part
 
-// UploadFiles uploads all files to S3 using temporary credentials scoped to the asset prefix.
+// UploadFiles uploads all files to S3 using temporary credentials scoped
+// to the asset prefix. Each file is uploaded with its path relative to
+// inputDir appended to creds.KeyPrefix.
 func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, inputDir string) error {
 	region := creds.Region
 	if region == "" {
@@ -46,7 +48,7 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, 
 	})
 
 	for i, localPath := range files {
-		rel, _ := relPath(inputDir, localPath)
+		rel, _ := filepath.Rel(inputDir, localPath)
 		s3Key := creds.KeyPrefix + rel
 		slog.Info("uploading file", "index", i+1, "total", len(files), "file", rel, "bucket", creds.Bucket, "key", s3Key)
 
@@ -68,8 +70,4 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, 
 	}
 
 	return nil
-}
-
-func relPath(base, target string) (string, error) {
-	return filepath.Rel(base, target)
 }

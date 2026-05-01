@@ -6,7 +6,11 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o data-target-assets .
+
+# TARGET selects which cmd/ binary to build (e.g. asset, timeseries).
+# Defaults to "asset" so existing builds produce the same binary as before.
+ARG TARGET=asset
+RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o data-target-assets ./cmd/${TARGET}
 
 # Stage 2: Runtime
 # Dual-mode image: runs as ECS task or Lambda function.
