@@ -1,4 +1,4 @@
-WHat# data-target-assets
+# data-target-assets
 
 A Pennsieve data target that imports asset files (e.g. viewer assets) into the platform via the `/import` API. Runs as an ECS task or AWS Lambda function.
 
