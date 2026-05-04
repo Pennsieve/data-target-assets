@@ -15,7 +15,10 @@ import (
 // Run executes the asset-target flow: discover files, create a viewer
 // asset, upload all files to its S3 prefix, and mark it ready.
 func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) error {
-	tc := loadTargetConfig()
+	tc, err := loadTargetConfig()
+	if err != nil {
+		return err
+	}
 
 	slog.Info("starting asset-import target",
 		"executionRunId", cfg.ExecutionRunID,
@@ -30,25 +33,22 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	if err != nil {
 		return fmt.Errorf("failed to load asset properties: %w", err)
 	}
-	if tc.AssetPropertiesFile != "" {
-		slog.Info("loaded asset properties", "file", tc.AssetPropertiesFile)
-	}
+	slog.Info("loaded asset properties", "file", tc.AssetPropertiesFile)
 
 	files, err := discoverFiles(cfg.InputDir)
 	if err != nil {
 		return fmt.Errorf("failed to discover files in %s: %w", cfg.InputDir, err)
 	}
 
-	if tc.AssetPropertiesFile != "" {
-		propsPath := filepath.Join(cfg.InputDir, tc.AssetPropertiesFile)
-		filtered := files[:0]
-		for _, f := range files {
-			if f != propsPath {
-				filtered = append(filtered, f)
-			}
+	// Exclude the properties file itself from the upload set.
+	propsPath := filepath.Join(cfg.InputDir, tc.AssetPropertiesFile)
+	filtered := files[:0]
+	for _, f := range files {
+		if f != propsPath {
+			filtered = append(filtered, f)
 		}
-		files = filtered
 	}
+	files = filtered
 
 	if len(files) == 0 {
 		slog.Info("no files found, nothing to import", "inputDir", cfg.InputDir)
