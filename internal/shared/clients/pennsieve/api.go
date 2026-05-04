@@ -1,4 +1,4 @@
-package main
+package pennsieve
 
 import (
 	"bytes"
@@ -10,17 +10,17 @@ import (
 	"time"
 )
 
-// PennsieveClient is a minimal HTTP client for the Pennsieve API endpoints
-// needed by the asset import target.
-type PennsieveClient struct {
+// Client is a minimal HTTP client for the Pennsieve API endpoints needed
+// by data target binaries.
+type Client struct {
 	apiHost2       string
 	executionRunID string
 	callbackToken  string
 	httpClient     *http.Client
 }
 
-func NewPennsieveClient(apiHost2, executionRunID, callbackToken string) *PennsieveClient {
-	return &PennsieveClient{
+func NewClient(apiHost2, executionRunID, callbackToken string) *Client {
+	return &Client{
 		apiHost2:       apiHost2,
 		executionRunID: executionRunID,
 		callbackToken:  callbackToken,
@@ -32,9 +32,9 @@ func NewPennsieveClient(apiHost2, executionRunID, callbackToken string) *Pennsie
 
 // ExecutionRunDetail holds the fields returned by GET /workflows/runs/{runId}.
 type ExecutionRunDetail struct {
-	Uuid        string                       `json:"uuid"`
-	DatasetID   string                       `json:"datasetId"`
-	DataSources map[string]DataSourceInput   `json:"dataSources,omitempty"`
+	Uuid        string                     `json:"uuid"`
+	DatasetID   string                     `json:"datasetId"`
+	DataSources map[string]DataSourceInput `json:"dataSources,omitempty"`
 }
 
 // DataSourceInput holds the per-data-source inputs for a workflow execution run.
@@ -45,13 +45,28 @@ type DataSourceInput struct {
 
 // UploadCredentials holds temporary AWS credentials for S3 uploads.
 type UploadCredentials struct {
-	AccessKeyID    string `json:"access_key_id"`
+	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
-	SessionToken   string `json:"session_token"`
-	Expiration     string `json:"expiration"`
-	Bucket         string `json:"bucket"`
-	Region         string `json:"region"`
-	KeyPrefix      string `json:"key_prefix"`
+	SessionToken    string `json:"session_token"`
+	Expiration      string `json:"expiration"`
+	Bucket          string `json:"bucket"`
+	Region          string `json:"region"`
+	KeyPrefix       string `json:"key_prefix"`
+}
+
+// ViewerAsset is the response shape returned by asset CRUD endpoints.
+type ViewerAsset struct {
+	ID        string `json:"id"`
+	DatasetID string `json:"dataset_id"`
+	Name      string `json:"name"`
+	AssetType string `json:"asset_type"`
+	Status    string `json:"status"`
+}
+
+// CreateAssetResult is returned from CreateViewerAsset.
+type CreateAssetResult struct {
+	Asset             ViewerAsset       `json:"asset"`
+	UploadCredentials UploadCredentials `json:"upload_credentials"`
 }
 
 type createViewerAssetRequest struct {
@@ -61,25 +76,12 @@ type createViewerAssetRequest struct {
 	PackageIDs []string               `json:"package_ids,omitempty"`
 }
 
-type viewerAssetResponse struct {
-	ID        string `json:"id"`
-	DatasetID string `json:"dataset_id"`
-	Name      string `json:"name"`
-	AssetType string `json:"asset_type"`
-	Status    string `json:"status"`
-}
-
-type createViewerAssetResponseBody struct {
-	Asset             viewerAssetResponse `json:"asset"`
-	UploadCredentials UploadCredentials   `json:"upload_credentials"`
-}
-
 type updateViewerAssetRequest struct {
 	Status *string `json:"status,omitempty"`
 }
 
 // GetExecutionRun fetches the execution run to resolve data sources and package IDs.
-func (c *PennsieveClient) GetExecutionRun(runID string) (*ExecutionRunDetail, error) {
+func (c *Client) GetExecutionRun(runID string) (*ExecutionRunDetail, error) {
 	reqURL := fmt.Sprintf("%s/compute/workflows/runs/%s", c.apiHost2, url.PathEscape(runID))
 
 	req, err := http.NewRequest("GET", reqURL, nil)
@@ -112,7 +114,7 @@ func GetPackageIDs(run *ExecutionRunDetail) ([]string, error) {
 }
 
 // CreateViewerAsset creates a viewer asset and returns upload credentials.
-func (c *PennsieveClient) CreateViewerAsset(datasetID, name, assetType string, properties map[string]interface{}, packageIDs []string) (*createViewerAssetResponseBody, error) {
+func (c *Client) CreateViewerAsset(datasetID, name, assetType string, properties map[string]interface{}, packageIDs []string) (*CreateAssetResult, error) {
 	reqURL := fmt.Sprintf("%s/packages/assets?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
 
 	body := createViewerAssetRequest{
@@ -134,7 +136,7 @@ func (c *PennsieveClient) CreateViewerAsset(datasetID, name, assetType string, p
 	req.Header.Set("Content-Type", "application/json")
 	c.setAuthHeader(req)
 
-	var result createViewerAssetResponseBody
+	var result CreateAssetResult
 	if err := c.doJSON(req, &result); err != nil {
 		return nil, fmt.Errorf("creating viewer asset: %w", err)
 	}
@@ -142,7 +144,7 @@ func (c *PennsieveClient) CreateViewerAsset(datasetID, name, assetType string, p
 }
 
 // MarkViewerAssetReady marks a viewer asset as ready after upload completes.
-func (c *PennsieveClient) MarkViewerAssetReady(assetID, datasetID string) error {
+func (c *Client) MarkViewerAssetReady(assetID, datasetID string) error {
 	reqURL := fmt.Sprintf("%s/packages/assets/%s?dataset_id=%s",
 		c.apiHost2,
 		url.PathEscape(assetID),
@@ -170,12 +172,12 @@ func (c *PennsieveClient) MarkViewerAssetReady(assetID, datasetID string) error 
 	return nil
 }
 
-func (c *PennsieveClient) setAuthHeader(req *http.Request) {
+func (c *Client) setAuthHeader(req *http.Request) {
 	req.Header.Set("Authorization",
 		fmt.Sprintf("Callback workflow-service:%s:%s", c.executionRunID, c.callbackToken))
 }
 
-func (c *PennsieveClient) doJSON(req *http.Request, result interface{}) error {
+func (c *Client) doJSON(req *http.Request, result interface{}) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %w", err)
