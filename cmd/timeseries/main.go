@@ -24,7 +24,6 @@ type LambdaEvent struct {
 	OrganizationID string `json:"organizationId"`
 	TargetType     string `json:"targetType"`
 
-	// Target-type-specific params (SCREAMING_SNAKE_CASE keys → env vars)
 	Params map[string]string `json:"params"`
 }
 
