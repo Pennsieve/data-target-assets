@@ -1,4 +1,4 @@
-package generic
+package asset
 
 import (
 	"context"
@@ -8,35 +8,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pennsieve/data-target-assets/internal/config"
-	"github.com/pennsieve/data-target-assets/internal/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/clients/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/config"
 )
 
-// targetConfig holds the asset-target-specific env vars. Loaded from
-// environment in addition to the shared config.Config.
-type targetConfig struct {
-	AssetType           string
-	AssetName           string
-	AssetPropertiesFile string
-}
-
-func loadTargetConfig() *targetConfig {
-	tc := &targetConfig{
-		AssetType:           os.Getenv("ASSET_TYPE"),
-		AssetName:           os.Getenv("ASSET_NAME"),
-		AssetPropertiesFile: os.Getenv("ASSET_PROPERTIES_FILE"),
-	}
-	if tc.AssetType == "" {
-		tc.AssetType = "parquet-umap-viewer"
-	}
-	if tc.AssetName == "" {
-		tc.AssetName = tc.AssetType
-	}
-	return tc
-}
-
-// Run executes the generic asset-target flow: discover files, create a
-// viewer asset, upload all files to its S3 prefix, and mark it ready.
+// Run executes the asset-target flow: discover files, create a viewer
+// asset, upload all files to its S3 prefix, and mark it ready.
 func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) error {
 	tc := loadTargetConfig()
 

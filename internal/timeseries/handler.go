@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/pennsieve/data-target-assets/internal/config"
-	"github.com/pennsieve/data-target-assets/internal/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/clients/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/config"
 )
 
 // Run is the time-series data target entrypoint. Not yet implemented —

@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/pennsieve/data-target-assets/internal/config"
-	"github.com/pennsieve/data-target-assets/internal/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/clients/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/config"
 	"github.com/pennsieve/data-target-assets/internal/timeseries"
 )
 

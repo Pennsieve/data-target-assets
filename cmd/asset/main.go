@@ -7,9 +7,9 @@ import (
 	"os"
 
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/pennsieve/data-target-assets/internal/config"
-	"github.com/pennsieve/data-target-assets/internal/generic"
-	"github.com/pennsieve/data-target-assets/internal/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/asset"
+	"github.com/pennsieve/data-target-assets/internal/shared/clients/pennsieve"
+	"github.com/pennsieve/data-target-assets/internal/shared/config"
 )
 
 // LambdaEvent mirrors the per-invocation payload fields sent by the
@@ -40,7 +40,7 @@ func run() error {
 		return fmt.Errorf("configuration error: %w", err)
 	}
 	client := pennsieve.NewClient(cfg.APIHost2, cfg.ExecutionRunID, cfg.CallbackToken)
-	return generic.Run(context.Background(), cfg, client)
+	return asset.Run(context.Background(), cfg, client)
 }
 
 // lambdaHandler bridges the Lambda invocation payload to environment variables,
