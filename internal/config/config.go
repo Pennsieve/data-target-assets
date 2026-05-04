@@ -27,10 +27,6 @@ func Load() (*Config, error) {
 		OrganizationID: os.Getenv("ORGANIZATION_ID"),
 	}
 
-	if cfg.APIHost2 == "" {
-		cfg.APIHost2 = "https://api2.pennsieve.net"
-	}
-
 	if cfg.InputDir == "" {
 		return nil, fmt.Errorf("INPUT_DIR is required")
 	}
@@ -42,6 +38,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.ExecutionRunID == "" {
 		return nil, fmt.Errorf("EXECUTION_RUN_ID is required")
+	}
+	if cfg.APIHost2 == "" {
+		return nil, fmt.Errorf("PENNSIEVE_API_HOST2 is required")
 	}
 
 	return cfg, nil
