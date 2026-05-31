@@ -11,6 +11,13 @@ type targetConfig struct {
 	AssetType           string
 	AssetName           string
 	AssetPropertiesFile string
+
+	// ChatSessionID is set only for chat-triggered runs. When present it is
+	// stamped on the created viewer asset (POST /assets chat_session_id) so
+	// the figure is linked to the chat session for lifecycle (FK cascade on
+	// session delete) and excluded from the dataset asset listing. Optional:
+	// empty for ordinary dataset-scoped asset imports.
+	ChatSessionID string
 }
 
 // loadTargetConfig reads the asset-target env vars set by the workflow
@@ -21,6 +28,7 @@ func loadTargetConfig() (*targetConfig, error) {
 		AssetType:           os.Getenv("ASSET_TYPE"),
 		AssetName:           os.Getenv("ASSET_NAME"),
 		AssetPropertiesFile: os.Getenv("ASSET_PROPERTIES_FILE"),
+		ChatSessionID:       os.Getenv("CHAT_SESSION_ID"),
 	}
 
 	if tc.AssetType == "" {
