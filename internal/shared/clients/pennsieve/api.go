@@ -172,6 +172,38 @@ func (c *Client) MarkViewerAssetReady(assetID, datasetID string) error {
 	return nil
 }
 
+// ReportOutputs records structured key/value outputs this run produced, via
+// workflow-service's PUT /runs/{runId}/outputs. Used to hand a completion
+// subscriber a resource this step created at runtime (e.g. the viewer-asset
+// UUID), which doesn't exist when the run is triggered and so can't ride the
+// frozen completion callbackContext.
+//
+// Best-effort by contract: callers should treat a failure here as non-fatal —
+// the asset is already created and ready regardless, and an older
+// workflow-service that doesn't expose this route just 404s. A failure only
+// costs the optional downstream affordance (e.g. delete-by-id) for this run.
+func (c *Client) ReportOutputs(runID string, outputs map[string]string) error {
+	reqURL := fmt.Sprintf("%s/compute/workflows/runs/%s/outputs", c.apiHost2, url.PathEscape(runID))
+
+	jsonBody, err := json.Marshal(outputs)
+	if err != nil {
+		return fmt.Errorf("marshaling outputs request: %w", err)
+	}
+
+	req, err := http.NewRequest("PUT", reqURL, bytes.NewReader(jsonBody))
+	if err != nil {
+		return fmt.Errorf("creating outputs request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.setAuthHeader(req)
+
+	var result json.RawMessage
+	if err := c.doJSON(req, &result); err != nil {
+		return fmt.Errorf("reporting run outputs: %w", err)
+	}
+	return nil
+}
+
 func (c *Client) setAuthHeader(req *http.Request) {
 	req.Header.Set("Authorization",
 		fmt.Sprintf("Callback workflow-service:%s:%s", c.executionRunID, c.callbackToken))
