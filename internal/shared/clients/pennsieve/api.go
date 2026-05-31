@@ -70,10 +70,11 @@ type CreateAssetResult struct {
 }
 
 type createViewerAssetRequest struct {
-	Name       string                 `json:"name"`
-	AssetType  string                 `json:"asset_type"`
-	Properties map[string]interface{} `json:"properties"`
-	PackageIDs []string               `json:"package_ids,omitempty"`
+	Name          string                 `json:"name"`
+	AssetType     string                 `json:"asset_type"`
+	Properties    map[string]interface{} `json:"properties"`
+	PackageIDs    []string               `json:"package_ids,omitempty"`
+	ChatSessionID string                 `json:"chat_session_id,omitempty"`
 }
 
 type updateViewerAssetRequest struct {
@@ -114,14 +115,15 @@ func GetPackageIDs(run *ExecutionRunDetail) ([]string, error) {
 }
 
 // CreateViewerAsset creates a viewer asset and returns upload credentials.
-func (c *Client) CreateViewerAsset(datasetID, name, assetType string, properties map[string]interface{}, packageIDs []string) (*CreateAssetResult, error) {
+func (c *Client) CreateViewerAsset(datasetID, name, assetType string, properties map[string]interface{}, packageIDs []string, chatSessionID string) (*CreateAssetResult, error) {
 	reqURL := fmt.Sprintf("%s/packages/assets?dataset_id=%s", c.apiHost2, url.QueryEscape(datasetID))
 
 	body := createViewerAssetRequest{
-		Name:       name,
-		AssetType:  assetType,
-		Properties: properties,
-		PackageIDs: packageIDs,
+		Name:          name,
+		AssetType:     assetType,
+		Properties:    properties,
+		PackageIDs:    packageIDs,
+		ChatSessionID: chatSessionID,
 	}
 
 	jsonBody, err := json.Marshal(body)

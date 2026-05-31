@@ -77,13 +77,14 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	}
 	slog.Info("resolved package IDs", "count", len(packageIDs), "packageIds", packageIDs)
 
-	slog.Info("creating viewer asset", "datasetId", cfg.DatasetID)
+	slog.Info("creating viewer asset", "datasetId", cfg.DatasetID, "chatSessionId", tc.ChatSessionID)
 	result, err := client.CreateViewerAsset(
 		cfg.DatasetID,
 		tc.AssetName,
 		tc.AssetType,
 		assetProperties,
 		packageIDs,
+		tc.ChatSessionID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create viewer asset: %w", err)
