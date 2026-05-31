@@ -101,6 +101,17 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 		return fmt.Errorf("failed to mark asset ready: %w", err)
 	}
 
+	// Report the created asset's UUID back onto the run so completion
+	// subscribers (e.g. chat-service) can reference it — the UUID is
+	// generated here at runtime and so can't ride the run's frozen completion
+	// callbackContext. Non-fatal: the asset is created and ready regardless,
+	// and an older workflow-service without this route just 404s. A failure
+	// only costs the optional downstream delete-by-id affordance.
+	if err := client.ReportOutputs(cfg.ExecutionRunID, map[string]string{"assetId": assetID}); err != nil {
+		slog.Warn("failed to report assetId output; downstream delete-by-id won't be available for this asset",
+			"assetId", assetID, "error", err)
+	}
+
 	slog.Info("asset upload complete", "fileCount", len(files), "assetId", assetID)
 	return nil
 }
