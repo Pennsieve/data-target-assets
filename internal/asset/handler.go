@@ -77,6 +77,19 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	}
 	slog.Info("resolved package IDs", "count", len(packageIDs), "packageIds", packageIDs)
 
+	// Chat-scoped figures are NOT attached to the package. They render inline in
+	// the chat (resolved by the assetId reported as a run output below) and the
+	// user promotes them to the package on demand via
+	// PATCH /packages/assets (package_ids + clear_chat_session). Sending no
+	// package IDs here means packages-service creates no viewer_asset_packages
+	// link, so the figure stays out of the package's asset listing until
+	// promoted. The originating package id is preserved on the chat message's
+	// image block (packageNodeId), so promotion can re-attach it.
+	if tc.ChatSessionID != "" {
+		slog.Info("chat-scoped asset: skipping package link until promoted", "chatSessionId", tc.ChatSessionID, "resolvedPackageIds", packageIDs)
+		packageIDs = nil
+	}
+
 	slog.Info("creating viewer asset", "datasetId", cfg.DatasetID, "chatSessionId", tc.ChatSessionID)
 	result, err := client.CreateViewerAsset(
 		cfg.DatasetID,
