@@ -34,6 +34,32 @@ Authentication uses callback tokens from the workflow orchestrator.
 | `ASSET_TYPE` | `parquet-umap-viewer` | Asset type option in the import body |
 | `ASSET_PROPERTIES_FILE` | | JSON file in INPUT_DIR with asset properties (optional, defaults to `{}`) |
 
+### Asset properties
+
+The file named by `ASSET_PROPERTIES_FILE` holds one JSON object. Its keys become the
+viewer asset's `properties`, with one exception.
+
+| Key | Meaning |
+|-----|---------|
+| `root_path` | Directory, relative to INPUT_DIR, whose **contents** become the asset |
+
+`root_path` directs this processor rather than describing the asset, so it is consumed
+here and never stored. Uploading the contents of the named directory makes the asset
+prefix the artifact's own root, which is what viewers expect: a Zarr bundle's `zarr.json`
+lands at the top of the prefix rather than under a wrapper directory.
+
+Use it when the producing processor writes its output as a single directory. A producer
+that writes flat files omits the key, and every file in INPUT_DIR is uploaded as before.
+The value must name an existing directory inside INPUT_DIR; an absolute path, a path
+escaping INPUT_DIR, a missing directory, or a directory holding no files fails the run.
+
+```json
+{ "root_path": "session.zarr", "sample_rate": 512 }
+```
+
+uploads `session.zarr/zarr.json` as `zarr.json` and stores `{"sample_rate": 512}` on the
+viewer asset.
+
 ### Lambda Mode
 
 When running as a Lambda function (`AWS_LAMBDA_RUNTIME_API` is set), the handler accepts a JSON event with:
