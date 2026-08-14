@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pennsieve/data-target-assets/internal/shared/clients/pennsieve"
 	"github.com/pennsieve/data-target-assets/internal/shared/config"
@@ -35,12 +36,21 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	}
 	slog.Info("loaded asset properties", "file", tc.AssetPropertiesFile)
 
-	files, err := discoverFiles(cfg.InputDir)
+	uploadRoot, declaredRoot, err := resolveUploadRoot(cfg.InputDir, assetProperties)
 	if err != nil {
-		return fmt.Errorf("failed to discover files in %s: %w", cfg.InputDir, err)
+		return fmt.Errorf("failed to resolve upload root: %w", err)
+	}
+	if declaredRoot != "" {
+		slog.Info("uploading a declared asset root", "rootPath", declaredRoot, "uploadRoot", uploadRoot)
 	}
 
-	// Exclude the properties file itself from the upload set.
+	files, err := discoverFiles(uploadRoot)
+	if err != nil {
+		return fmt.Errorf("failed to discover files in %s: %w", uploadRoot, err)
+	}
+
+	// Exclude the properties file itself from the upload set. A declared root
+	// leaves the file above uploadRoot, where the walk never reaches it.
 	propsPath := filepath.Join(cfg.InputDir, tc.AssetPropertiesFile)
 	filtered := files[:0]
 	for _, f := range files {
@@ -51,6 +61,11 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	files = filtered
 
 	if len(files) == 0 {
+		// A producer that names a root and then ships nothing has failed, so say so
+		// rather than creating an empty asset.
+		if declaredRoot != "" {
+			return fmt.Errorf("%s %s holds no files", rootPathKey, declaredRoot)
+		}
 		slog.Info("no files found, nothing to import", "inputDir", cfg.InputDir)
 		return nil
 	}
@@ -62,7 +77,7 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 		if info != nil {
 			size = info.Size()
 		}
-		rel, _ := filepath.Rel(cfg.InputDir, f)
+		rel, _ := filepath.Rel(uploadRoot, f)
 		slog.Info("file", "path", rel, "bytes", size)
 	}
 
@@ -106,7 +121,7 @@ func Run(ctx context.Context, cfg *config.Config, client *pennsieve.Client) erro
 	slog.Info("created viewer asset", "assetId", assetID, "keyPrefix", result.UploadCredentials.KeyPrefix)
 
 	slog.Info("starting S3 upload", "fileCount", len(files))
-	if err := pennsieve.UploadFiles(ctx, &result.UploadCredentials, files, cfg.InputDir); err != nil {
+	if err := pennsieve.UploadFiles(ctx, &result.UploadCredentials, files, uploadRoot); err != nil {
 		return fmt.Errorf("upload failed: %w", err)
 	}
 
@@ -150,6 +165,53 @@ func loadAssetProperties(inputDir, filename string) (map[string]interface{}, err
 		return nil, fmt.Errorf("parsing asset properties file %s: %w", path, err)
 	}
 	return props, nil
+}
+
+// rootPathKey is the asset-properties key a producer uses to name the directory
+// holding the asset. It directs this processor and is not asset metadata, so
+// resolveUploadRoot removes it before the properties reach the viewer asset.
+const rootPathKey = "root_path"
+
+// resolveUploadRoot returns the directory whose contents become the asset, plus
+// the root_path that selected it (empty when the producer declared none).
+//
+// A producer whose output is one directory names it here, and that directory
+// becomes the asset prefix, so every consumer finds the artifact's own root at
+// the top of the asset. An absent, empty, or "." value selects inputDir, which
+// is what a producer emitting flat files wants. Any other value must name an
+// existing directory inside inputDir.
+func resolveUploadRoot(inputDir string, props map[string]interface{}) (string, string, error) {
+	raw, ok := props[rootPathKey]
+	if !ok {
+		return inputDir, "", nil
+	}
+	delete(props, rootPathKey)
+
+	declared, ok := raw.(string)
+	if !ok {
+		return "", "", fmt.Errorf("%s must be a string, got %T", rootPathKey, raw)
+	}
+	if declared == "" || declared == "." {
+		return inputDir, "", nil
+	}
+	if filepath.IsAbs(declared) {
+		return "", "", fmt.Errorf("%s must be relative to the input directory, got %s", rootPathKey, declared)
+	}
+
+	root := filepath.Join(inputDir, declared)
+	rel, err := filepath.Rel(inputDir, root)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", "", fmt.Errorf("%s must stay inside the input directory, got %s", rootPathKey, declared)
+	}
+
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", "", fmt.Errorf("%s %s: %w", rootPathKey, declared, err)
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("%s %s is not a directory", rootPathKey, declared)
+	}
+	return root, declared, nil
 }
 
 // discoverFiles walks inputDir and returns all regular file paths.

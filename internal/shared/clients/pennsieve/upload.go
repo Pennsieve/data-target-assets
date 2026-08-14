@@ -20,8 +20,9 @@ const partSize = 64 * 1024 * 1024 // 64 MB per part
 
 // UploadFiles uploads all files to S3 using temporary credentials scoped
 // to the asset prefix. Each file is uploaded with its path relative to
-// inputDir appended to creds.KeyPrefix.
-func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, inputDir string) error {
+// uploadRoot appended to creds.KeyPrefix, so uploadRoot becomes the asset
+// prefix itself.
+func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, uploadRoot string) error {
 	region := creds.Region
 	if region == "" {
 		region = "us-east-1"
@@ -48,7 +49,7 @@ func UploadFiles(ctx context.Context, creds *UploadCredentials, files []string, 
 	})
 
 	for i, localPath := range files {
-		rel, _ := filepath.Rel(inputDir, localPath)
+		rel, _ := filepath.Rel(uploadRoot, localPath)
 		s3Key := creds.KeyPrefix + rel
 		slog.Info("uploading file", "index", i+1, "total", len(files), "file", rel, "bucket", creds.Bucket, "key", s3Key)
 
